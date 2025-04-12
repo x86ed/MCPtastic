@@ -1,0 +1,2 @@
+# MCPtastic
+Meshtastic MCP bindings
