@@ -91,8 +91,10 @@ def register_mesh_tools(mcp):
         """
         iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
         try:
-            packet = iface.sendAlert(text, destinationId, None, channelIndex)
-            return json.dumps(packet, indent=4)
+            iface.sendAlert(text, destinationId, None, channelIndex)
+            return f"Alert sent: {text}"
+        except Exception as e:
+            return f"Error sending alert: {str(e)}"
         finally:
             iface.close()
     
@@ -119,7 +121,7 @@ def register_mesh_tools(mcp):
             # Convert string to bytes
             data_bytes = data.encode('utf-8') if isinstance(data, str) else data
             
-            packet = iface.sendData(
+            iface.sendData(
                 data_bytes,
                 destinationId,
                 portNum,
@@ -133,7 +135,9 @@ def register_mesh_tools(mcp):
                 None,  # No public key
                 priority
             )
-            return json.dumps(packet, indent=4)
+            return f"Data sent: {data[:20]}{'...' if len(data) > 20 else ''} to port {portNum}"
+        except Exception as e:
+            return f"Error sending data: {str(e)}"
         finally:
             iface.close()
 
@@ -201,7 +205,7 @@ def register_mesh_tools(mcp):
         lat: float,
         lon: float,
         name: str = "",
-        expire: str = "2023-10-01T00:00:00",
+        expire: str = "2025-10-01T00:00:00",
         description: str = "",
         id: int = 0,
     ) -> str:
@@ -289,7 +293,7 @@ def register_mesh_tools(mcp):
 
         iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
         try:
-            packet = iface.sendPosition(
+            iface.sendPosition(
                 latitude,
                 longitude,
                 altitude,
@@ -298,7 +302,9 @@ def register_mesh_tools(mcp):
                 wantResponse,
                 channelIndex
             )
-            return json.dumps(packet, indent=4)
+            return f"Position sent: {latitude}, {longitude}, {altitude}m"
+        except Exception as e:
+            return f"Error sending position: {str(e)}"
         finally:
             iface.close()
     
@@ -317,8 +323,10 @@ def register_mesh_tools(mcp):
         """
         iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
         try:
-            packet = iface.sendTelemetry(destinationId, wantResponse, channelIndex, telemetryType)
-            return json.dumps(packet, indent=4)
+            iface.sendTelemetry(destinationId, wantResponse, channelIndex, telemetryType)
+            return f"Telemetry sent: {telemetryType}"
+        except Exception as e:
+            return f"Error sending telemetry: {str(e)}"
         finally:
             iface.close()
 
@@ -337,8 +345,10 @@ def register_mesh_tools(mcp):
         """
         iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
         try:
-            packet = iface.sendText(text, destinationId, wantAck, wantResponse, None, channelIndex, portNum)
-            return json.dumps(packet, indent=4)
+            iface.sendText(text, destinationId, wantAck, wantResponse, None, channelIndex, portNum)
+            return f"Message sent: {text}"
+        except Exception as e:
+            return f"Error sending message: {str(e)}"
         finally:
             iface.close()
 
