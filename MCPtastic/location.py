@@ -2,7 +2,7 @@
 import json
 import meshtastic
 import meshtastic.tcp_interface
-from MCPtastic.utils import get_location_from_ip
+from utils import get_location_from_ip
 
 def register_location_tools(mcp):
     """Register all location-related tools with MCP."""
