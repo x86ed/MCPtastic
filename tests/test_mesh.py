@@ -130,13 +130,14 @@ async def test_send_text_short(mock_tcp, mcp_with_tools, mock_interface):
 
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
-async def test_send_text_chunked(mock_tcp, mcp_with_tools, mock_interface):
+@patch('asyncio.sleep')  # Add this to verify the delay is called
+async def test_send_text_chunked(mock_sleep, mock_tcp, mcp_with_tools, mock_interface):
     """Test the send_text tool with a long message that needs chunking"""
     mock_tcp.return_value = mock_interface
     
-    # Create a long message that will need to be chunked
-    # Make it long enough to ensure chunking with the real utf8len function
-    long_message = "X" * 300
+    # Create a long message with clear word boundaries
+    # This message should get split at word boundaries when possible
+    long_message = "This is a test message with multiple words that should be split at word boundaries. " * 10
     
     # Call the tool
     result = await mcp_with_tools.tools["send_text"](long_message)
@@ -151,6 +152,26 @@ async def test_send_text_chunked(mock_tcp, mcp_with_tools, mock_interface):
     # Check that the first call had the [1/x] prefix
     first_call_args = mock_interface.sendText.call_args_list[0][0]
     assert first_call_args[0].startswith("[1/")
+    
+    # Check that asyncio.sleep was called for the delay between chunks
+    # It should be called one less time than the number of chunks (no delay before first chunk)
+    assert mock_sleep.call_count == mock_interface.sendText.call_count - 1
+    
+    # Check that sleep was called with 0.5 seconds
+    for call in mock_sleep.call_args_list:
+        assert call[0][0] == 0.5
+    
+    # Verify word boundary splitting by checking each chunk
+    for call_args in mock_interface.sendText.call_args_list:
+        message = call_args[0][0]
+        # Get the actual message content after the prefix
+        if "] " in message:
+            content = message.split("] ", 1)[1]
+            
+            # Check that the chunk either ends with a space or is the last chunk
+            # (except for very long words that might need to be split)
+            if len(content) < 100:  # reasonable word length check
+                assert content.endswith(" ") or call_args == mock_interface.sendText.call_args_list[-1]
     
     # Verify the result contains success messages for sent chunks
     assert "Sent chunk: [1/" in result

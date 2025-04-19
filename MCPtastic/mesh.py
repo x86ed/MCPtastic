@@ -1,11 +1,17 @@
 import datetime
 import json
 import sys
+import os
 from typing import Any, Callable, List, Optional, Union
 import meshtastic
 import meshtastic.tcp_interface
 from meshtastic import Node
 from meshtastic import BROADCAST_ADDR
+import asyncio  # Add this import
+
+# Add parent directory to path to enable local imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from MCPtastic.utils import utf8len
 
 def register_mesh_tools(mcp):
     """Register all mesh-related tools with MCP."""
@@ -322,30 +328,27 @@ def register_mesh_tools(mcp):
         finally:
             iface.close()
 
-    # Fix for send_text function - remove the Callable parameter
+
     @mcp.tool()
     async def send_text(text: str, destinationId: Union[int, str] = '^all', wantAck: bool = False, wantResponse: bool = False, channelIndex: int = 0, portNum: int = 1) -> str:
         """Send a text message via the Meshtastic device.
         
-        Long messages will be automatically chunked into parts to fit within Meshtastic's message size limits.
-        
         Args:
-            text (str): The text to send.
+            text (str): The text to send. Long messages will be automatically chunked into parts to fit within Meshtastic's message size limits.
             destinationId (Union[int, str], optional): The destination ID. Defaults to '^all'.
             wantAck (bool, optional): True if you want an ACK for this message. Defaults to False.
             wantResponse (bool, optional): True if you want a response for this message. Defaults to False.
             channelIndex (int, optional): Channel index to use. Defaults to 0.
             portNum (int, optional): Port number to use. Defaults to 1.
         """
-        from MCPtastic.utils import utf8len
         
         # Maximum size of a Meshtastic text message in bytes
-        MAX_TEXT_SIZE = 237
+        MAX_TEXT_SIZE = 192  # they told me 237 bytes but that appears to have been a lie
         
+        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
         # Check if we need to chunk the message
         if utf8len(text) <= MAX_TEXT_SIZE:
             # Message fits in one chunk
-            iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
             try:
                 iface.sendText(text, destinationId, wantAck, wantResponse, None, channelIndex, portNum)
                 return f"Message sent: {text}"
@@ -354,62 +357,96 @@ def register_mesh_tools(mcp):
             finally:
                 iface.close()
         else:
-            # We need to chunk the message
-            chunks = []
-            current_chunk = ""
-            
-            # First, estimate the number of chunks (this may change as we go)
-            # This helps determine how many digits we need for the counter
-            estimated_chunks = (utf8len(text) // MAX_TEXT_SIZE) + 1
-            
-            # Counter string format (e.g., "[1/10] " or "[1/3] ")
-            counter_format = f"[{{0}}/{estimated_chunks}] "
-            
-            # Character by character, build chunks that fit within MAX_TEXT_SIZE
-            for char in text:
-                # Test adding this character to the current chunk
-                test_chunk = current_chunk + char
-                
-                # Check if adding the counter would exceed MAX_TEXT_SIZE
-                counter = counter_format.format(len(chunks) + 1)
-                if utf8len(counter + test_chunk) > MAX_TEXT_SIZE:
-                    # This chunk is full, add it to chunks and start a new one
-                    chunks.append(counter + current_chunk)
-                    current_chunk = char
-                else:
-                    # Add the character to the current chunk
-                    current_chunk = test_chunk
-            
-            # Add the last chunk if there's anything left
-            if current_chunk:
-                counter = counter_format.format(len(chunks) + 1)
-                chunks.append(counter + current_chunk)
-            
-            # Update the counter if we have more or fewer chunks than estimated
-            final_chunks = []
-            total_chunks = len(chunks)
-            if total_chunks != estimated_chunks:
-                # We need to update the counter format
-                counter_format = f"[{{0}}/{total_chunks}] "
-                for i, chunk in enumerate(chunks):
-                    # Remove old counter and add new one
-                    _, content = chunk.split("] ", 1)
-                    final_chunks.append(f"[{i+1}/{total_chunks}] {content}")
-            else:
-                final_chunks = chunks
-            
-            # Send all chunks
-            results = []
-            iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
             try:
-                for chunk in final_chunks:
+                # We need to chunk the message
+                chunks = []
+                
+                # First make a rough estimate of number of chunks needed
+                text_length = utf8len(text)
+                estimated_chunks = (text_length // MAX_TEXT_SIZE) + 1
+                
+                # Calculate the size of the counter prefix (e.g., "[1/10] ")
+                # Add 4 for the brackets, slash, and space: "[" + "/" + "] "
+                counter_size = 4 + len(str(estimated_chunks)) + len(str(estimated_chunks))
+                
+                # Calculate effective maximum content size per chunk
+                effective_max_size = MAX_TEXT_SIZE - counter_size
+                
+                # Now chunk the message more accurately
+                remaining_text = text
+                
+                while remaining_text:
+                    # Try to break at word boundary first
+                    current_chunk = ""
+                    current_size = 0
+                    
+                    # First try to find a word boundary
+                    test_chunk = remaining_text[:min(len(remaining_text), effective_max_size * 2)]  # Look ahead a bit
+                    
+                    # Start with the full allowed size and work backward to find a space
+                    bytes_so_far = 0
+                    last_space_idx = -1
+                    
+                    for i, char in enumerate(test_chunk):
+                        char_bytes = utf8len(char)
+                        if bytes_so_far + char_bytes > effective_max_size:
+                            # We've reached our limit
+                            break
+                        
+                        bytes_so_far += char_bytes
+                        if char.isspace():
+                            last_space_idx = i
+                    
+                    # If we found a space, break there
+                    if last_space_idx > 0:
+                        current_chunk = remaining_text[:last_space_idx + 1]
+                        remaining_text = remaining_text[last_space_idx + 1:]
+                    else:
+                        # No good word boundary found, fall back to character-by-character
+                        for char in remaining_text:
+                            char_size = utf8len(char)
+                            
+                            # Check if adding this character would exceed our effective limit
+                            if current_size + char_size > effective_max_size:
+                                break
+                            
+                            current_chunk += char
+                            current_size += char_size
+                        
+                        # If we couldn't fit even one character, something is wrong
+                        if not current_chunk:
+                            return f"Error: Cannot chunk message - individual character exceeds maximum size"
+                        
+                        # Remove the processed part from remaining text
+                        remaining_text = remaining_text[len(current_chunk):]
+                    
+                    # Add this chunk to our list (without prefix for now)
+                    chunks.append(current_chunk)
+                
+                # Now that we know the exact number of chunks, add the prefixes
+                total_chunks = len(chunks)
+                final_chunks = []
+                
+                for i, chunk_content in enumerate(chunks):
+                    prefix = f"[{i+1}/{total_chunks}] "
+                    final_chunks.append(prefix + chunk_content)
+                
+                # Send all chunks with half-second delay between each
+                results = []
+                for i, chunk in enumerate(final_chunks):
                     try:
+                        # Add a delay between chunks (except before the first one)
+                        if i > 0:
+                            await asyncio.sleep(0.5)  # Half-second delay
+                        
                         iface.sendText(chunk, destinationId, wantAck, wantResponse, None, channelIndex, portNum)
                         results.append(f"Sent chunk: {chunk}")
                     except Exception as e:
                         results.append(f"Error sending chunk: {str(e)}")
                 
                 return "\n".join(results)
+            except Exception as e:
+                return f"Error chunking message: {str(e)}"
             finally:
                 iface.close()
 
