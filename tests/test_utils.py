@@ -87,5 +87,3 @@ async def test_get_location_from_ip_with_specified_ip(mock_client):
             {"elevation": 20}
         ]
     }
-    
-    # Configure

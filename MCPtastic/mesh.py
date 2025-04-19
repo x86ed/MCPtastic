@@ -327,6 +327,8 @@ def register_mesh_tools(mcp):
     async def send_text(text: str, destinationId: Union[int, str] = '^all', wantAck: bool = False, wantResponse: bool = False, channelIndex: int = 0, portNum: int = 1) -> str:
         """Send a text message via the Meshtastic device.
         
+        Long messages will be automatically chunked into parts to fit within Meshtastic's message size limits.
+        
         Args:
             text (str): The text to send.
             destinationId (Union[int, str], optional): The destination ID. Defaults to '^all'.
@@ -335,14 +337,81 @@ def register_mesh_tools(mcp):
             channelIndex (int, optional): Channel index to use. Defaults to 0.
             portNum (int, optional): Port number to use. Defaults to 1.
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
-        try:
-            iface.sendText(text, destinationId, wantAck, wantResponse, None, channelIndex, portNum)
-            return f"Message sent: {text}"
-        except Exception as e:
-            return f"Error sending message: {str(e)}"
-        finally:
-            iface.close()
+        from MCPtastic.utils import utf8len
+        
+        # Maximum size of a Meshtastic text message in bytes
+        MAX_TEXT_SIZE = 237
+        
+        # Check if we need to chunk the message
+        if utf8len(text) <= MAX_TEXT_SIZE:
+            # Message fits in one chunk
+            iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+            try:
+                iface.sendText(text, destinationId, wantAck, wantResponse, None, channelIndex, portNum)
+                return f"Message sent: {text}"
+            except Exception as e:
+                return f"Error sending message: {str(e)}"
+            finally:
+                iface.close()
+        else:
+            # We need to chunk the message
+            chunks = []
+            current_chunk = ""
+            
+            # First, estimate the number of chunks (this may change as we go)
+            # This helps determine how many digits we need for the counter
+            estimated_chunks = (utf8len(text) // MAX_TEXT_SIZE) + 1
+            
+            # Counter string format (e.g., "[1/10] " or "[1/3] ")
+            counter_format = f"[{{0}}/{estimated_chunks}] "
+            
+            # Character by character, build chunks that fit within MAX_TEXT_SIZE
+            for char in text:
+                # Test adding this character to the current chunk
+                test_chunk = current_chunk + char
+                
+                # Check if adding the counter would exceed MAX_TEXT_SIZE
+                counter = counter_format.format(len(chunks) + 1)
+                if utf8len(counter + test_chunk) > MAX_TEXT_SIZE:
+                    # This chunk is full, add it to chunks and start a new one
+                    chunks.append(counter + current_chunk)
+                    current_chunk = char
+                else:
+                    # Add the character to the current chunk
+                    current_chunk = test_chunk
+            
+            # Add the last chunk if there's anything left
+            if current_chunk:
+                counter = counter_format.format(len(chunks) + 1)
+                chunks.append(counter + current_chunk)
+            
+            # Update the counter if we have more or fewer chunks than estimated
+            final_chunks = []
+            total_chunks = len(chunks)
+            if total_chunks != estimated_chunks:
+                # We need to update the counter format
+                counter_format = f"[{{0}}/{total_chunks}] "
+                for i, chunk in enumerate(chunks):
+                    # Remove old counter and add new one
+                    _, content = chunk.split("] ", 1)
+                    final_chunks.append(f"[{i+1}/{total_chunks}] {content}")
+            else:
+                final_chunks = chunks
+            
+            # Send all chunks
+            results = []
+            iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+            try:
+                for chunk in final_chunks:
+                    try:
+                        iface.sendText(chunk, destinationId, wantAck, wantResponse, None, channelIndex, portNum)
+                        results.append(f"Sent chunk: {chunk}")
+                    except Exception as e:
+                        results.append(f"Error sending chunk: {str(e)}")
+                
+                return "\n".join(results)
+            finally:
+                iface.close()
 
     @mcp.tool()
     async def send_traceroute(dest: Union[int, str], hopLimit: int, channelIndex: int = 0) -> str:

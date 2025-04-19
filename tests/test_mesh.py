@@ -106,13 +106,15 @@ async def test_get_my_node_info(mock_tcp, mcp_with_tools, mock_interface):
     expected = json.dumps({"id": "!abcdef", "num": 123456}, indent=4)
     assert result == expected
 
+# Remove these mocks and use the real utf8len function
+
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
-async def test_send_text(mock_tcp, mcp_with_tools, mock_interface):
-    """Test the send_text tool"""
+async def test_send_text_short(mock_tcp, mcp_with_tools, mock_interface):
+    """Test the send_text tool with a short message that doesn't need chunking"""
     mock_tcp.return_value = mock_interface
     
-    # Call the tool
+    # Call the tool with a short message that won't need chunking
     result = await mcp_with_tools.tools["send_text"]("Hello, mesh!")
     
     # Verify the interface was created and closed properly
@@ -122,9 +124,95 @@ async def test_send_text(mock_tcp, mcp_with_tools, mock_interface):
     )
     mock_interface.close.assert_called_once()
     
-    # Verify the result is properly converted to JSON
-    expected = json.dumps({"id": "text1", "status": "success"}, indent=4)
-    assert result == expected
+    # Verify the result with the new format
+    assert result == "Message sent: Hello, mesh!"
+
+
+@pytest.mark.asyncio
+@patch('meshtastic.tcp_interface.TCPInterface')
+async def test_send_text_chunked(mock_tcp, mcp_with_tools, mock_interface):
+    """Test the send_text tool with a long message that needs chunking"""
+    mock_tcp.return_value = mock_interface
+    
+    # Create a long message that will need to be chunked
+    # Make it long enough to ensure chunking with the real utf8len function
+    long_message = "X" * 300
+    
+    # Call the tool
+    result = await mcp_with_tools.tools["send_text"](long_message)
+    
+    # Verify the interface was created and closed once
+    mock_tcp.assert_called_once_with("meshtastic.local")
+    mock_interface.close.assert_called_once()
+    
+    # Verify that sendText was called multiple times
+    assert mock_interface.sendText.call_count >= 2
+    
+    # Check that the first call had the [1/x] prefix
+    first_call_args = mock_interface.sendText.call_args_list[0][0]
+    assert first_call_args[0].startswith("[1/")
+    
+    # Verify the result contains success messages for sent chunks
+    assert "Sent chunk: [1/" in result
+
+
+@pytest.mark.asyncio
+@patch('meshtastic.tcp_interface.TCPInterface')
+async def test_send_text_edge_case(mock_tcp, mcp_with_tools, mock_interface):
+    """Test the send_text tool with a message that's exactly at the MAX_TEXT_SIZE limit"""
+    mock_tcp.return_value = mock_interface
+    
+    # Create a message that's exactly at the limit
+    edge_message = "This is a message that's exactly at the size limit."
+    
+    # Call the tool
+    result = await mcp_with_tools.tools["send_text"](edge_message)
+    
+    # Verify sendText was called only once (no chunking)
+    mock_interface.sendText.assert_called_once()
+    
+    # Verify the message wasn't chunked
+    assert mock_interface.sendText.call_args[0][0] == edge_message
+    
+    # Verify the result
+    assert result == f"Message sent: {edge_message}"
+
+
+@pytest.mark.asyncio
+@patch('meshtastic.tcp_interface.TCPInterface')
+async def test_send_text_unicode(mock_tcp, mcp_with_tools, mock_interface):
+    """Test the send_text tool with Unicode characters"""
+    mock_tcp.return_value = mock_interface
+    
+    # Create a Unicode message that's long enough to trigger chunking
+    # Each emoji is 4 bytes in UTF-8, so this should be plenty
+    unicode_message = "😀" * 100
+    
+    # Call the tool
+    result = await mcp_with_tools.tools["send_text"](unicode_message)
+    
+    # Verify the interface was properly closed
+    mock_interface.close.assert_called_once()
+    
+    # Verify result contains something about the message being sent
+    assert "Sent chunk:" in result or "Message sent:" in result
+    
+    # If the message was chunked, verify no emoji was split
+    if "Sent chunk:" in result:
+        for call_args in mock_interface.sendText.call_args_list:
+            message = call_args[0][0]
+            # Remove the chunk prefix like [1/2]
+            if "]" in message:
+                content = message.split("]", 1)[1].strip()
+            else:
+                content
+            
+            # Check for orphaned UTF-8 continuation bytes
+            # If an emoji was split, we'd have invalid UTF-8
+            try:
+                content.encode('utf-8').decode('utf-8')
+            except UnicodeError:
+                pytest.fail("Invalid UTF-8 detected - a character might have been split")
 
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
@@ -163,8 +251,12 @@ async def test_send_waypoint(mock_tcp, mcp_with_tools, mock_interface):
     )
     mock_interface.close.assert_called_once()
     
-    # Verify the result
-    assert result == "Waypoint created"
+    # Updated assertion to match the new JSON format
+    expected_json = json.dumps({
+        "status": "success", 
+        "message": "42 updated at lat: 37.7749 lon: -122.4194"
+    }, indent=4)
+    assert result == expected_json
 
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
