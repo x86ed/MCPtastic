@@ -1,5 +1,6 @@
 # Device information and configuration tools
 import json
+import os
 import meshtastic
 import meshtastic.tcp_interface
 import re
@@ -141,7 +142,7 @@ def register_device_tools(mcp):
         """Returns information about the connected device."""
         iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
         try:
-            info = iface.showInfo()
+            info = iface.showInfo(os.devnull)
             dicts = parse_meshtastic_output(info)
             save_json_objects(dicts)
             return "Device information saved to database"
