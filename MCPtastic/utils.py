@@ -2,6 +2,9 @@
 import httpx
 import json
 
+def utf8len(s):
+    return len(s.encode('utf-8'))
+
 async def get_location_from_ip(ip: str = None) -> dict:
     """Get location information from an IP address.
     

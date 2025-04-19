@@ -177,7 +177,7 @@ def register_mesh_tools(mcp):
         finally:
             iface.close()
     
-    # Fix show_nodes to ensure proper JSON return
+
     @mcp.tool()
     async def show_nodes(includeSelf: bool = True, showFields: Optional[List[str]] = None) -> str:
         """Gets information about all nodes in the mesh.
@@ -232,11 +232,7 @@ def register_mesh_tools(mcp):
                 latitude=lat,
                 longitude=lon,
             )
-            # If result is already a string, wrap it in a JSON object
-            if isinstance(result, str):
-                return json.dumps({"status": "success", "message": result}, indent=4)
-            # Otherwise try to JSON serialize it directly
-            return json.dumps(result, indent=4)
+            return json.dumps({"status": "success", "message": f"{id} updated at lat: {str(lat)} lon: {str(lon)}"}, indent=4)
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=4)
         finally:
@@ -260,11 +256,7 @@ def register_mesh_tools(mcp):
         iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
         try:
             result = iface.deleteWaypoint(id, destinationId, wantAck, wantResponse, channelIndex)
-            # If result is already a string, wrap it in a JSON object
-            if isinstance(result, str):
-                return json.dumps({"status": "success", "message": result}, indent=4)
-            # Otherwise try to JSON serialize it directly
-            return json.dumps(result, indent=4)
+            return json.dumps({"status": "success", "message": f"Waypoint {id} deleted"}, indent=4)
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=4)
         finally:
