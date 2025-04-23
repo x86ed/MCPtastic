@@ -2,6 +2,7 @@ import unittest
 import json
 import sqlite3
 import os
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 import tempfile
 
@@ -27,15 +28,26 @@ Nodes in mesh: {
     "lastHeard": 1234567890,
     "deviceMetrics": {
       "batteryLevel": 75,
-      "voltage": 3.8
-    }
+      "voltage": 3.8,
+      "channelUtilization": 15.5,
+      "airUtilTx": 2.3,
+      "uptimeSeconds": 3600
+    },
+    "snr": 5.0,
+    "position": {
+      "latitude": 34.12345,
+      "longitude": -118.12345,
+      "altitude": 100
+    },
+    "hopsAway": 1
   },
   "!87654321": {
     "num": 987654321,
     "user": {
       "id": "!87654321",
       "longName": "Another User",
-      "shortName": "AU"
+      "shortName": "AU",
+      "role": "CLIENT"
     }
   }
 }"""
@@ -159,6 +171,102 @@ Nodes in mesh: { more invalid json }
         
         conn.close()
 
+    def test_save_json_objects_with_timestamps(self):
+        """Test saving data with timestamp fields to SQLite database."""
+        current_time = int(datetime.now().timestamp())
+        uptime = 3600  # 1 hour
+        
+        test_data = {
+            "Owner": "Test User",
+            "MyInfo": {"myNodeNum": 1234567890},
+            "Metadata": {"firmwareVersion": "2.5.1"},
+            "Nodes": {
+                "!12345678": {
+                    "user": {
+                        "longName": "Test Node",
+                        "shortName": "TN",
+                        "hwModel": "TBEAM"
+                    },
+                    "lastHeard": current_time,
+                    "deviceMetrics": {
+                        "uptimeSeconds": uptime,
+                        "batteryLevel": 75
+                    }
+                }
+            }
+        }
+        
+        # Save to the temporary database
+        save_json_objects(test_data, self.db_path)
+        
+        # Connect to the database and verify data
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Check timestamps in nodes table
+        cursor.execute("SELECT last_heard, since, created FROM nodes WHERE id = '!12345678'")
+        result = cursor.fetchone()
+        
+        # Verify last_heard and since are properly formatted ISO timestamps
+        self.assertIsNotNone(result[0])  # last_heard should not be None
+        self.assertIsNotNone(result[1])  # since should not be None
+        self.assertIsNotNone(result[2])  # created should not be None
+        
+        # Check that since = last_heard - uptime (approximately)
+        last_heard_dt = datetime.fromisoformat(result[0])
+        since_dt = datetime.fromisoformat(result[1])
+        time_diff_seconds = (last_heard_dt - since_dt).total_seconds()
+        self.assertAlmostEqual(time_diff_seconds, uptime, delta=2)  # Allow 2 seconds tolerance
+        
+        conn.close()
+
+    def test_created_timestamp_preservation(self):
+        """Test that created timestamp is preserved on updates."""
+        # First insertion
+        first_data = {
+            "Nodes": {
+                "!12345678": {
+                    "user": {"longName": "Original Name"},
+                    "lastHeard": int(datetime.now().timestamp())
+                }
+            }
+        }
+        save_json_objects(first_data, self.db_path)
+        
+        # Get the original created timestamp
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT created FROM nodes WHERE id = '!12345678'")
+        original_created = cursor.fetchone()[0]
+        conn.close()
+        
+        # Wait a moment to ensure timestamps would be different
+        import time
+        time.sleep(1)
+        
+        # Update the same record
+        updated_data = {
+            "Nodes": {
+                "!12345678": {
+                    "user": {"longName": "Updated Name"},
+                    "lastHeard": int(datetime.now().timestamp())
+                }
+            }
+        }
+        save_json_objects(updated_data, self.db_path)
+        
+        # Check that created timestamp hasn't changed
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT created, long_name FROM nodes WHERE id = '!12345678'")
+        new_created, new_name = cursor.fetchone()
+        conn.close()
+        
+        # Created timestamp should remain the same even after update
+        self.assertEqual(original_created, new_created)
+        # But the data should be updated
+        self.assertEqual(new_name, "Updated Name")
+
     @patch('meshtastic.tcp_interface.TCPInterface')
     def test_get_info_tool(self, mock_interface):
         """Test the get_info tool."""
@@ -176,9 +284,14 @@ Nodes in mesh: { more invalid json }
         # Make the mock tool method return our capturing decorator
         mock_mcp.tool = MagicMock(return_value=capturing_decorator)
         
-        # Mock interface instance
+        # Mock interface instance with stdout capture
         mock_iface_instance = MagicMock()
-        mock_iface_instance.showInfo.return_value = self.test_content
+        
+        # Modified to handle new output redirection approach
+        def side_effect_showinfo(*args, **kwargs):
+            return self.test_content
+            
+        mock_iface_instance.showInfo.side_effect = side_effect_showinfo
         mock_interface.return_value = mock_iface_instance
         
         # Register tools with mock MCP

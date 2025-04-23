@@ -164,24 +164,24 @@ def register_mesh_tools(mcp):
         finally:
             iface.close()
 
-    # Fix show_info to properly handle return values
-    @mcp.tool()
-    async def show_info() -> str:
-        """Gets the device information.
+    # # Fix show_info to properly handle return values
+    # @mcp.tool()
+    # async def show_info() -> str:
+    #     """Gets the device information.
         
-        Returns:
-            str: JSON formatted device information
-        """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
-        try:
-            # Don't pass sys.stdout, we want to return the data instead
-            info = iface.showInfo(None)
-            # Ensure the result is JSON serializable
-            return json.dumps(info, indent=4)
-        except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)}, indent=4)
-        finally:
-            iface.close()
+    #     Returns:
+    #         str: JSON formatted device information
+    #     """
+    #     iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+    #     try:
+    #         # Don't pass sys.stdout, we want to return the data instead
+    #         info = iface.showInfo(None)
+    #         # Ensure the result is JSON serializable
+    #         return json.dumps(info, indent=4)
+    #     except Exception as e:
+    #         return json.dumps({"status": "error", "message": str(e)}, indent=4)
+    #     finally:
+    #         iface.close()
     
 
     @mcp.tool()

@@ -6,6 +6,7 @@ import meshtastic.tcp_interface
 import re
 import sqlite3
 from typing import Dict, Any, Optional, Union
+from datetime import datetime
 
 def parse_meshtastic_output(content: str) -> Dict[str, Union[Optional[str], Dict[str, Any]]]:
     """
@@ -100,7 +101,24 @@ def save_json_objects(data: Dict[str, Any], db_path: str = "meshtastic.db") -> N
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS nodes (
         id TEXT PRIMARY KEY,
+        long_name TEXT,
+        short_name TEXT,
+        hw_model TEXT,
+        public_key TEXT,
+        role TEXT,
+        position_lat REAL,
+        position_lon REAL,
+        position_alt INTEGER,
+        battery_level INTEGER,
+        channel_utilization REAL,
+        air_util_tx REAL,
+        snr REAL,
+        hops_away INTEGER,
+        channel INTEGER,
+        last_heard TIMESTAMP,
+        since TIMESTAMP,   
         node_data JSON,
+        created TIMESTAMP,
         last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     ''')
@@ -125,10 +143,70 @@ def save_json_objects(data: Dict[str, Any], db_path: str = "meshtastic.db") -> N
     # Insert or update nodes
     if data.get("Nodes"):
         for node_id, node_data in data["Nodes"].items():
+            # Extract user fields
+            user_data = node_data.get("user", {})
+            long_name = user_data.get("longName")
+            short_name = user_data.get("shortName")
+            hw_model = user_data.get("hwModel")
+            public_key = user_data.get("publicKey")
+            role = user_data.get("role")
+            
+            # Extract position data
+            position_data = node_data.get("position", {})
+            position_lat = position_data.get("latitude")
+            position_lon = position_data.get("longitude")
+            position_alt = position_data.get("altitude")
+            
+            # Extract metrics
+            metrics = node_data.get("deviceMetrics", {})
+            battery_level = metrics.get("batteryLevel")
+            channel_util = metrics.get("channelUtilization")
+            air_util_tx = metrics.get("airUtilTx")
+            uptime_seconds = metrics.get("uptimeSeconds")
+            
+            # Other top-level fields
+            snr = node_data.get("snr")
+            hops_away = node_data.get("hopsAway")
+            channel = node_data.get("channel")
+            last_heard = node_data.get("lastHeard")
+            
+            # Convert timestamps
+            last_heard_ts = None
+            since_ts = None
+            
+            if last_heard is not None:
+                # Convert Unix timestamp to ISO8601 format
+                last_heard_ts = datetime.fromtimestamp(last_heard).isoformat()
+            
+            # Calculate "since" field - last_heard minus uptime_seconds gives the start time
+            if last_heard is not None and uptime_seconds is not None:
+                since_unix = last_heard - uptime_seconds
+                since_ts = datetime.fromtimestamp(since_unix).isoformat()
+            
+            # Check if record already exists to preserve created timestamp
+            cursor.execute("SELECT created FROM nodes WHERE id = ?", (node_id,))
+            existing = cursor.fetchone()
+            
+            # If record exists, use its created timestamp, otherwise use current time
+            current_time = datetime.now().isoformat()
+            created_timestamp = existing[0] if existing else current_time
+            
             cursor.execute('''
-            INSERT OR REPLACE INTO nodes (id, node_data, last_updated) 
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ''', (node_id, json.dumps(node_data)))
+            INSERT OR REPLACE INTO nodes (
+                id, long_name, short_name, hw_model, public_key, role, 
+                position_lat, position_lon, position_alt,
+                battery_level, channel_utilization, air_util_tx, 
+                snr, hops_away, channel, last_heard, since, node_data,
+                created, last_updated
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (
+                node_id, long_name, short_name, hw_model, public_key, role,
+                position_lat, position_lon, position_alt,
+                battery_level, channel_util, air_util_tx,
+                snr, hops_away, channel, last_heard_ts, since_ts, json.dumps(node_data),
+                created_timestamp
+            ))
+        
         print(f"Saved {len(data['Nodes'])} nodes to database")
     
     conn.commit()
@@ -140,9 +218,20 @@ def register_device_tools(mcp):
     @mcp.tool()
     async def get_info() -> str:
         """Returns information about the connected device."""
+        import io
+        import contextlib
+        
+        # Create a string buffer to capture output
+        string_buffer = io.StringIO()
+        
         iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
         try:
-            info = iface.showInfo(os.devnull)
+            # Capture all stdout to our buffer
+            with contextlib.redirect_stdout(string_buffer):
+                iface.showInfo()
+            
+            # Get the captured output
+            info = string_buffer.getvalue()
             dicts = parse_meshtastic_output(info)
             save_json_objects(dicts)
             return "Device information saved to database"
