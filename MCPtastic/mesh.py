@@ -8,6 +8,7 @@ import meshtastic.tcp_interface
 from meshtastic import Node
 from meshtastic import BROADCAST_ADDR
 import asyncio  # Add this import
+import hashlib
 
 # Add parent directory to path to enable local imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -163,25 +164,6 @@ def register_mesh_tools(mcp):
             return json.dumps({"status": "error", "message": str(e)}, indent=4)
         finally:
             iface.close()
-
-    # # Fix show_info to properly handle return values
-    # @mcp.tool()
-    # async def show_info() -> str:
-    #     """Gets the device information.
-        
-    #     Returns:
-    #         str: JSON formatted device information
-    #     """
-    #     iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
-    #     try:
-    #         # Don't pass sys.stdout, we want to return the data instead
-    #         info = iface.showInfo(None)
-    #         # Ensure the result is JSON serializable
-    #         return json.dumps(info, indent=4)
-    #     except Exception as e:
-    #         return json.dumps({"status": "error", "message": str(e)}, indent=4)
-    #     finally:
-    #         iface.close()
     
 
     @mcp.tool()
@@ -221,7 +203,7 @@ def register_mesh_tools(mcp):
             lat (float): Latitude of the waypoint.
             lon (float): Longitude of the waypoint.
             name (str, optional): Name of the waypoint. Defaults to "".
-            expire (str, optional): Expiration date in ISO format. Defaults to "2023-10-01T00:00:00".
+            expire (str, optional): Expiration date in ISO format. Defaults to "2025-10-01T00:00:00".
             description (str, optional): Description of the waypoint. Defaults to "".
             id (int, optional): ID of the waypoint. Defaults to 0.
             
@@ -230,15 +212,20 @@ def register_mesh_tools(mcp):
         """
         iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
         try:
+            # Assign a random hashed integer if id is 0
+            if id == 0:
+                unique_string = f"{lat}{lon}{name}{description}{expire}"
+                id = int(hashlib.sha256(unique_string.encode()).hexdigest(), 16) % (10**8)  # Generate an 8-digit integer hash
+
             result = iface.sendWaypoint(
-                waypoint_id=int(id),
+                waypoint_id=id,
                 name=name,
                 description=description,
                 expire=int(datetime.datetime.fromisoformat(expire).timestamp()),
                 latitude=lat,
                 longitude=lon,
             )
-            return json.dumps({"status": "success", "message": f"{id} updated at lat: {str(lat)} lon: {str(lon)}"}, indent=4)
+            return json.dumps({"status": "success", "message": f"Waypoint {id} created at lat: {lat}, lon: {lon}"}, indent=4)
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=4)
         finally:

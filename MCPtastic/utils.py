@@ -1,6 +1,5 @@
 # Utility functions used by multiple modules
 import httpx
-import json
 
 def utf8len(s):
     return len(s.encode('utf-8'))
