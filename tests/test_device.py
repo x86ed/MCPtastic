@@ -277,49 +277,49 @@ Nodes in mesh: { more invalid json }
         # But the data should be updated
         self.assertEqual(new_name, "Updated Name")
 
-    @patch('meshtastic.tcp_interface.TCPInterface')
-    def test_get_info_tool(self, mock_interface):
+    @patch('MCPtastic.device.get_interface')
+    def test_get_info_tool(self, mock_get_interface):
         """Test the get_info tool."""
         # Mock MCP
         mock_mcp = MagicMock()
-        
+
         # Capture the decorated functions
         registered_tools = {}
-        
+
         # Create a capturing decorator
         def capturing_decorator(func):
             registered_tools[func.__name__] = func
             return func
-        
+
         # Make the mock tool method return our capturing decorator
         mock_mcp.tool = MagicMock(return_value=capturing_decorator)
-        
+
         # Mock interface instance with stdout capture
         mock_iface_instance = MagicMock()
-        
+
         # Modified to handle new output redirection approach
         def side_effect_showinfo(*args, **kwargs):
             return self.test_content
-            
+
         mock_iface_instance.showInfo.side_effect = side_effect_showinfo
-        mock_interface.return_value = mock_iface_instance
-        
+        mock_get_interface.return_value = mock_iface_instance
+
         # Register tools with mock MCP
         register_device_tools(mock_mcp)
-        
+
         # Get the registered get_info function by name
         self.assertIn('get_info', registered_tools)
         get_info_func = registered_tools['get_info']
-        
+
         # Run the function asynchronously
         import asyncio
         result = asyncio.run(get_info_func())
-        
+
         # Verify the interface was used correctly
-        mock_interface.assert_called_once_with("meshtastic.local")
+        mock_get_interface.assert_called_once_with("meshtastic.local", "tcp")
         mock_iface_instance.showInfo.assert_called_once()
         mock_iface_instance.close.assert_called_once()
-        
+
         # Check the result
         self.assertEqual(result, "Device information saved to database")
 

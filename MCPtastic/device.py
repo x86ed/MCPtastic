@@ -541,4 +541,13 @@ def register_device_tools(mcp):
         finally:
             iface.close()        
     
+    @mcp.tool()
+    async def set_serial_log(file: str) -> str:
+        """Sets the serial log file for the connected device.
+        Args:
+            file (str): Path to the serial log file
+        """
+        
+        mt_config.serial_log = file
+        return f"Serial log set to {file}"
     return mcp

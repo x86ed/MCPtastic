@@ -2,28 +2,36 @@ import datetime
 import json
 import sys
 import os
-from typing import Any, Callable, List, Optional, Union
+from typing import List, Optional, Union
 import meshtastic
 import meshtastic.tcp_interface
-from meshtastic import Node
 from meshtastic import BROADCAST_ADDR
 import asyncio  # Add this import
 import hashlib
+import functools
 
 # Add parent directory to path to enable local imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from MCPtastic.utils import utf8len
+from MCPtastic.interface_manager import InterfaceManager
+
+# Cache for the hostname and interface
+_cached_iface = None
+_cached_hostname = None
 
 def register_mesh_tools(mcp):
     """Register all mesh-related tools with MCP."""
 
     @mcp.tool()
     async def get_long_name() -> str:
-        """Get the long name of the device.
-        """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        """Get the long name of the device."""
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             return iface.getLongName()
+        except Exception as e:
+            return f"Error: {str(e)}"
         finally:
             iface.close()
 
@@ -31,7 +39,9 @@ def register_mesh_tools(mcp):
     async def get_short_name() -> str:
         """Get the short name of the device.
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             return iface.getShortName()
         finally:
@@ -42,7 +52,9 @@ def register_mesh_tools(mcp):
     async def get_my_node_info() -> str:
         """Get the information about the current node connected to MCP
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             node_info = iface.getMyNodeInfo()
             return json.dumps(node_info, indent=4)
@@ -53,7 +65,9 @@ def register_mesh_tools(mcp):
     async def get_my_user() -> str:
         """Get the information about the current node's user connected to MCP
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             node_info = iface.getMyUser()
             return json.dumps(node_info, indent=4)
@@ -69,7 +83,9 @@ def register_mesh_tools(mcp):
     #         att (int): Attribute.
     #         timeout (int): Timeout in seconds.
     #     """
-    #     iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+    #           if _cached_iface is None:
+    #        InterfaceManager.set_interface("meshtastic.local", "tcp")
+    #    iface = _cached_iface
     #     try:
     #         node = iface.getNode(id,req_chan,att,timeout)
     #         return node
@@ -80,7 +96,9 @@ def register_mesh_tools(mcp):
     async def get_public_key() -> str:
         """Get My Public Key for remote admin
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             key = iface.getPublicKey()
             return json.dumps(key, indent=4)
@@ -96,7 +114,9 @@ def register_mesh_tools(mcp):
             destinationId (int | str, optional): The destination ID. Defaults to BROADCAST_ADDR.
             channelIndex (int, optional): The channel index. Defaults to 0.
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             iface.sendAlert(text, destinationId, None, channelIndex)
             return f"Alert sent: {text}"
@@ -123,7 +143,9 @@ def register_mesh_tools(mcp):
             pkiEncrypted (bool, optional): If True, data will be encrypted. Defaults to False.
             priority (int, optional): Message priority. Defaults to 70.
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             # Convert string to bytes
             data_bytes = data.encode('utf-8') if isinstance(data, str) else data
@@ -156,7 +178,9 @@ def register_mesh_tools(mcp):
         Returns:
             str: JSON status message
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             iface.sendHeartbeat()
             return json.dumps({"status": "success", "message": "Heartbeat sent"}, indent=4)
@@ -177,7 +201,9 @@ def register_mesh_tools(mcp):
         Returns:
             str: Formatted node information
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             nodes_info = iface.showNodes(includeSelf, showFields)
             # The showNodes method returns a string, so we can just return it directly
@@ -210,7 +236,9 @@ def register_mesh_tools(mcp):
         Returns:
             str: JSON formatted response with status information
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             # Assign a random hashed integer if id is 0
             if id == 0:
@@ -246,7 +274,9 @@ def register_mesh_tools(mcp):
         Returns:
             str: JSON formatted response with status information
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             result = iface.deleteWaypoint(id, destinationId, wantAck, wantResponse, channelIndex)
             return json.dumps({"status": "success", "message": f"Waypoint {id} deleted"}, indent=4)
@@ -276,7 +306,9 @@ def register_mesh_tools(mcp):
             channelIndex (int): Channel index to use. Defaults to 0.
         """
 
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             iface.sendPosition(
                 latitude,
@@ -306,7 +338,9 @@ def register_mesh_tools(mcp):
             channelIndex (int): Channel index to use. Defaults to 0.
             telemetryType (str): Type of telemetry data to send. Defaults to "device_metrics".
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             iface.sendTelemetry(destinationId, wantResponse, channelIndex, telemetryType)
             return f"Telemetry sent: {telemetryType}"
@@ -332,7 +366,9 @@ def register_mesh_tools(mcp):
         # Maximum size of a Meshtastic text message in bytes
         MAX_TEXT_SIZE = 192  # they told me 237 bytes but that appears to have been a lie
         
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         # Check if we need to chunk the message
         if utf8len(text) <= MAX_TEXT_SIZE:
             # Message fits in one chunk
@@ -449,7 +485,9 @@ def register_mesh_tools(mcp):
         Returns:
             str: Status message indicating success or error
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        if _cached_iface is None:
+            InterfaceManager.set_interface("meshtastic.local", "tcp")
+        iface = _cached_iface
         try:
             iface.sendTraceRoute(dest, hopLimit, channelIndex)
             return json.dumps({"status": "success", "message": f"Traceroute sent to {dest}"}, indent=4)

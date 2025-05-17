@@ -7,6 +7,7 @@ from device import register_device_tools
 from location import register_location_tools
 from mesh import register_mesh_tools
 from version import register_version
+from ble import register_ble
 
 # Initialize FastMCP server
 mcp = FastMCP("MCPtastic")
@@ -15,6 +16,7 @@ mcp = FastMCP("MCPtastic")
 register_device_tools(mcp)
 register_location_tools(mcp)
 register_mesh_tools(mcp)
+register_ble(mcp)
 register_version(mcp)
 
 if __name__ == "__main__":

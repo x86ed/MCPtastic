@@ -22,7 +22,7 @@ class MockMCP:
         return decorator
 
 @pytest.fixture
-def mock_interface():
+def mock_interface() -> MagicMock:
     """Create a mock TCP interface with predefined responses"""
     mock = MagicMock()
     
@@ -47,7 +47,7 @@ def mock_interface():
     return mock
 
 @pytest.fixture
-def mcp_with_tools():
+def mcp_with_tools() -> MockMCP:
     """Initialize MCP and register tools"""
     mcp = MockMCP()
     mesh.register_mesh_tools(mcp)
@@ -56,7 +56,7 @@ def mcp_with_tools():
 # Mark all async tests with pytest.mark.asyncio
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
-async def test_get_long_name(mock_tcp, mcp_with_tools, mock_interface):
+async def test_get_long_name(mock_tcp: Mock, mcp_with_tools: MockMCP, mock_interface: MagicMock) -> None:
     """Test the get_long_name tool"""
     mock_tcp.return_value = mock_interface
     
@@ -73,7 +73,7 @@ async def test_get_long_name(mock_tcp, mcp_with_tools, mock_interface):
 
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
-async def test_get_short_name(mock_tcp, mcp_with_tools, mock_interface):
+async def test_get_short_name(mock_tcp: Mock, mcp_with_tools: MockMCP, mock_interface: MagicMock) -> None:
     """Test the get_short_name tool"""
     mock_tcp.return_value = mock_interface
     
@@ -90,7 +90,7 @@ async def test_get_short_name(mock_tcp, mcp_with_tools, mock_interface):
 
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
-async def test_get_my_node_info(mock_tcp, mcp_with_tools, mock_interface):
+async def test_get_my_node_info(mock_tcp: Mock, mcp_with_tools: MockMCP, mock_interface: MagicMock) -> None:
     """Test the get_my_node_info tool"""
     mock_tcp.return_value = mock_interface
     
@@ -106,11 +106,9 @@ async def test_get_my_node_info(mock_tcp, mcp_with_tools, mock_interface):
     expected = json.dumps({"id": "!abcdef", "num": 123456}, indent=4)
     assert result == expected
 
-# Remove these mocks and use the real utf8len function
-
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
-async def test_send_text_short(mock_tcp, mcp_with_tools, mock_interface):
+async def test_send_text_short(mock_tcp: Mock, mcp_with_tools: MockMCP, mock_interface: MagicMock) -> None:
     """Test the send_text tool with a short message that doesn't need chunking"""
     mock_tcp.return_value = mock_interface
     
@@ -127,11 +125,10 @@ async def test_send_text_short(mock_tcp, mcp_with_tools, mock_interface):
     # Verify the result with the new format
     assert result == "Message sent: Hello, mesh!"
 
-
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
 @patch('asyncio.sleep')  # Add this to verify the delay is called
-async def test_send_text_chunked(mock_sleep, mock_tcp, mcp_with_tools, mock_interface):
+async def test_send_text_chunked(mock_sleep: Mock, mock_tcp: Mock, mcp_with_tools: MockMCP, mock_interface: MagicMock) -> None:
     """Test the send_text tool with a long message that needs chunking"""
     mock_tcp.return_value = mock_interface
     
@@ -176,10 +173,9 @@ async def test_send_text_chunked(mock_sleep, mock_tcp, mcp_with_tools, mock_inte
     # Verify the result contains success messages for sent chunks
     assert "Sent chunk: [1/" in result
 
-
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
-async def test_send_text_edge_case(mock_tcp, mcp_with_tools, mock_interface):
+async def test_send_text_edge_case(mock_tcp: Mock, mcp_with_tools: MockMCP, mock_interface: MagicMock) -> None:
     """Test the send_text tool with a message that's exactly at the MAX_TEXT_SIZE limit"""
     mock_tcp.return_value = mock_interface
     
@@ -198,10 +194,9 @@ async def test_send_text_edge_case(mock_tcp, mcp_with_tools, mock_interface):
     # Verify the result
     assert result == f"Message sent: {edge_message}"
 
-
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
-async def test_send_text_unicode(mock_tcp, mcp_with_tools, mock_interface):
+async def test_send_text_unicode(mock_tcp: Mock, mcp_with_tools: MockMCP, mock_interface: MagicMock) -> None:
     """Test the send_text tool with Unicode characters"""
     mock_tcp.return_value = mock_interface
     
@@ -237,7 +232,7 @@ async def test_send_text_unicode(mock_tcp, mcp_with_tools, mock_interface):
 
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
-async def test_send_waypoint(mock_tcp, mcp_with_tools, mock_interface):
+async def test_send_waypoint(mock_tcp: Mock, mcp_with_tools: MockMCP, mock_interface: MagicMock) -> None:
     """Test the send_waypoint tool"""
     mock_tcp.return_value = mock_interface
     
@@ -281,7 +276,7 @@ async def test_send_waypoint(mock_tcp, mcp_with_tools, mock_interface):
 
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
-async def test_show_nodes(mock_tcp, mcp_with_tools, mock_interface):
+async def test_show_nodes(mock_tcp: Mock, mcp_with_tools: MockMCP, mock_interface: MagicMock) -> None:
     """Test the show_nodes tool"""
     mock_tcp.return_value = mock_interface
     
@@ -298,7 +293,7 @@ async def test_show_nodes(mock_tcp, mcp_with_tools, mock_interface):
 
 @pytest.mark.asyncio
 @patch('meshtastic.tcp_interface.TCPInterface')
-async def test_interface_exception(mock_tcp, mcp_with_tools):
+async def test_interface_exception(mock_tcp: Mock, mcp_with_tools: MockMCP) -> None:
     """Test that the interface is properly closed even if an exception occurs"""
     # Create a mock interface that raises an exception when getLongName is called
     mock_interface = Mock()
