@@ -8,15 +8,21 @@ from location import register_location_tools
 from mesh import register_mesh_tools
 from version import register_version
 from ble import register_ble
+from tcp import register_tcp
+from srl import register_serial
+from interface_manager import InterfaceManager
 
 # Initialize FastMCP server
 mcp = FastMCP("MCPtastic")
+interface_manager = InterfaceManager()
 
 # Register all tools with MCP
-register_device_tools(mcp)
-register_location_tools(mcp)
-register_mesh_tools(mcp)
-register_ble(mcp)
+register_device_tools(mcp, interface_manager)
+register_location_tools(mcp, interface_manager)
+register_mesh_tools(mcp, interface_manager)
+register_ble(mcp, interface_manager)
+register_tcp(mcp, interface_manager)
+register_serial(mcp, interface_manager)
 register_version(mcp)
 
 if __name__ == "__main__":

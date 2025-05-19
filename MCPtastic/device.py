@@ -401,7 +401,7 @@ def ex_config(interface) -> str:
 
 
 
-def register_device_tools(mcp):
+def register_device_tools(mcp, interface_manager):
     """Register all device-related tools with MCP."""
     
     @mcp.tool()
@@ -413,7 +413,7 @@ def register_device_tools(mcp):
         # Create a string buffer to capture output
         string_buffer = io.StringIO()
         
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        iface = interface_manager.get_interface()
         try:
             # Capture all stdout to our buffer
             with contextlib.redirect_stdout(string_buffer):
@@ -431,7 +431,7 @@ def register_device_tools(mcp):
     async def get_support_info() -> str:
         """Returns support information about the connected device."""
         
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        iface = interface_manager.get_interface()
         try:
             # Capture all stdout to our buffer
             output_buffer = io.StringIO()
@@ -445,7 +445,7 @@ def register_device_tools(mcp):
     async def export_config() -> str:
         """Exports the configuration of the connected device as YAML."""
         
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        iface = interface_manager.get_interface()
         try:
             return ex_config(iface)
         finally:
@@ -459,7 +459,7 @@ def register_device_tools(mcp):
             yml (str): YAML configuration string
         """
         
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        iface = interface_manager.get_interface()
         out = ""
         try:
             configuration = yaml.safe_load(yml)

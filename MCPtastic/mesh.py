@@ -6,7 +6,7 @@ from typing import List, Optional, Union
 import meshtastic
 import meshtastic.tcp_interface
 from meshtastic import BROADCAST_ADDR
-import asyncio  # Add this import
+import asyncio
 import hashlib
 import functools
 
@@ -15,95 +15,77 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from MCPtastic.utils import utf8len
 from MCPtastic.interface_manager import InterfaceManager
 
-# Cache for the hostname and interface
-_cached_iface = None
-_cached_hostname = None
-
-def register_mesh_tools(mcp):
+def register_mesh_tools(mcp, iface_manager: InterfaceManager) -> None:
     """Register all mesh-related tools with MCP."""
 
     @mcp.tool()
     async def get_long_name() -> str:
         """Get the long name of the device."""
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
             return iface.getLongName()
         except Exception as e:
             return f"Error: {str(e)}"
         finally:
-            iface.close()
+            if iface:
+                iface.close()
 
     @mcp.tool()
     async def get_short_name() -> str:
         """Get the short name of the device.
         """
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
             return iface.getShortName()
         finally:
-            iface.close()
-
+            if iface:
+                iface.close()
 
     @mcp.tool()
     async def get_my_node_info() -> str:
         """Get the information about the current node connected to MCP
         """
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
             node_info = iface.getMyNodeInfo()
             return json.dumps(node_info, indent=4)
         finally:
-            iface.close()
+            if iface:
+                iface.close()
     
     @mcp.tool()
     async def get_my_user() -> str:
         """Get the information about the current node's user connected to MCP
         """
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
             node_info = iface.getMyUser()
             return json.dumps(node_info, indent=4)
         finally:
-            iface.close()
-
-    # @mcp.tool()
-    # async def get_node(id: str, req_chan: bool, att: int, timeout: int ) -> Node:
-    #     """Remote admin functionality returns a node object that can be used to administer that node
-    #     Args:
-    #         id (str): ID of the node.
-    #         req_chan (bool): Request channel.
-    #         att (int): Attribute.
-    #         timeout (int): Timeout in seconds.
-    #     """
-    #           if _cached_iface is None:
-    #        InterfaceManager.set_interface("meshtastic.local", "tcp")
-    #    iface = _cached_iface
-    #     try:
-    #         node = iface.getNode(id,req_chan,att,timeout)
-    #         return node
-    #     finally:
-    #         iface.close()
+            if iface:
+                iface.close()
 
     @mcp.tool()
     async def get_public_key() -> str:
         """Get My Public Key for remote admin
         """
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
             key = iface.getPublicKey()
             return json.dumps(key, indent=4)
         finally:
-            iface.close()
+            if iface:
+                iface.close()
 
     @mcp.tool()
     async def send_alert(text: str, destinationId: int | str = BROADCAST_ADDR, channelIndex: int =0) -> str:
@@ -114,19 +96,18 @@ def register_mesh_tools(mcp):
             destinationId (int | str, optional): The destination ID. Defaults to BROADCAST_ADDR.
             channelIndex (int, optional): The channel index. Defaults to 0.
         """
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
             iface.sendAlert(text, destinationId, None, channelIndex)
             return f"Alert sent: {text}"
         except Exception as e:
             return f"Error sending alert: {str(e)}"
         finally:
-            iface.close()
+            if iface:
+                iface.close()
     
-
-    # Fix for send_data function - remove the Callable parameter
     @mcp.tool()
     async def send_data(data: str, destinationId: Union[int, str] = '^all', portNum: int = 256, wantAck: bool = False, wantResponse: bool = False, onResponseAckPermitted: bool = False, channelIndex: int = 0, hopLimit: Optional[int] = None, pkiEncrypted: bool = False, priority: int = 70) -> str:
         """Send a data packet to some other node
@@ -143,10 +124,11 @@ def register_mesh_tools(mcp):
             pkiEncrypted (bool, optional): If True, data will be encrypted. Defaults to False.
             priority (int, optional): Message priority. Defaults to 70.
         """
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
+            
             # Convert string to bytes
             data_bytes = data.encode('utf-8') if isinstance(data, str) else data
             
@@ -168,9 +150,9 @@ def register_mesh_tools(mcp):
         except Exception as e:
             return f"Error sending data: {str(e)}"
         finally:
-            iface.close()
+            if iface:
+                iface.close()
 
-    # Fix send_heartbeat to return a status message instead of None
     @mcp.tool()
     async def send_heartbeat() -> str:
         """Sends a heartbeat to the mesh.
@@ -178,18 +160,18 @@ def register_mesh_tools(mcp):
         Returns:
             str: JSON status message
         """
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
             iface.sendHeartbeat()
             return json.dumps({"status": "success", "message": "Heartbeat sent"}, indent=4)
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=4)
         finally:
-            iface.close()
+            if iface:
+                iface.close()
     
-
     @mcp.tool()
     async def show_nodes(includeSelf: bool = True, showFields: Optional[List[str]] = None) -> str:
         """Gets information about all nodes in the mesh.
@@ -201,17 +183,18 @@ def register_mesh_tools(mcp):
         Returns:
             str: Formatted node information
         """
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
             nodes_info = iface.showNodes(includeSelf, showFields)
             # The showNodes method returns a string, so we can just return it directly
             return nodes_info
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=4)
         finally:
-            iface.close()
+            if iface:
+                iface.close()
 
     # Fix send_waypoint to ensure consistent JSON return
     @mcp.tool()
@@ -236,10 +219,11 @@ def register_mesh_tools(mcp):
         Returns:
             str: JSON formatted response with status information
         """
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
+                
             # Assign a random hashed integer if id is 0
             if id == 0:
                 unique_string = f"{lat}{lon}{name}{description}{expire}"
@@ -257,7 +241,8 @@ def register_mesh_tools(mcp):
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=4)
         finally:
-            iface.close()
+            if iface:
+                iface.close()
 
     # Fix delete_waypoint to ensure consistent JSON return
     @mcp.tool()
@@ -274,16 +259,17 @@ def register_mesh_tools(mcp):
         Returns:
             str: JSON formatted response with status information
         """
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
             result = iface.deleteWaypoint(id, destinationId, wantAck, wantResponse, channelIndex)
             return json.dumps({"status": "success", "message": f"Waypoint {id} deleted"}, indent=4)
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=4)
         finally:
-            iface.close()
+            if iface:
+                iface.close()
 
     @mcp.tool()
     async def send_position(latitude: float = 0.0,
@@ -306,10 +292,10 @@ def register_mesh_tools(mcp):
             channelIndex (int): Channel index to use. Defaults to 0.
         """
 
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
             iface.sendPosition(
                 latitude,
                 longitude,
@@ -323,7 +309,8 @@ def register_mesh_tools(mcp):
         except Exception as e:
             return f"Error sending position: {str(e)}"
         finally:
-            iface.close()
+            if iface:
+                iface.close()
     
     @mcp.tool()
     async def send_telemetry(destinationId: Union[int, str] = BROADCAST_ADDR,
@@ -338,16 +325,17 @@ def register_mesh_tools(mcp):
             channelIndex (int): Channel index to use. Defaults to 0.
             telemetryType (str): Type of telemetry data to send. Defaults to "device_metrics".
         """
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
             iface.sendTelemetry(destinationId, wantResponse, channelIndex, telemetryType)
             return f"Telemetry sent: {telemetryType}"
         except Exception as e:
             return f"Error sending telemetry: {str(e)}"
         finally:
-            iface.close()
+            if iface:
+                iface.close()
 
 
     @mcp.tool()
@@ -366,111 +354,117 @@ def register_mesh_tools(mcp):
         # Maximum size of a Meshtastic text message in bytes
         MAX_TEXT_SIZE = 192  # they told me 237 bytes but that appears to have been a lie
         
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
-        # Check if we need to chunk the message
-        if utf8len(text) <= MAX_TEXT_SIZE:
-            # Message fits in one chunk
-            try:
-                iface.sendText(text, destinationId, wantAck, wantResponse, None, channelIndex, portNum)
-                return f"Message sent: {text}"
-            except Exception as e:
-                return f"Error sending message: {str(e)}"
-            finally:
-                iface.close()
-        else:
-            try:
-                # We need to chunk the message
-                chunks = []
-                
-                # First make a rough estimate of number of chunks needed
-                text_length = utf8len(text)
-                estimated_chunks = (text_length // MAX_TEXT_SIZE) + 1
-                
-                # Calculate the size of the counter prefix (e.g., "[1/10] ")
-                # Add 4 for the brackets, slash, and space: "[" + "/" + "] "
-                counter_size = 4 + len(str(estimated_chunks)) + len(str(estimated_chunks))
-                
-                # Calculate effective maximum content size per chunk
-                effective_max_size = MAX_TEXT_SIZE - counter_size
-                
-                # Now chunk the message more accurately
-                remaining_text = text
-                
-                while remaining_text:
-                    # Try to break at word boundary first
-                    current_chunk = ""
-                    current_size = 0
+        try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
+            # Check if we need to chunk the message
+            if utf8len(text) <= MAX_TEXT_SIZE:
+                # Message fits in one chunk
+                try:
+                    iface.sendText(text, destinationId, wantAck, wantResponse, None, channelIndex, portNum)
+                    return f"Message sent: {text}"
+                except Exception as e:
+                    return f"Error sending message: {str(e)}"
+                finally:
+                    iface.close()
+            else:
+                try:
+                    # We need to chunk the message
+                    chunks = []
                     
-                    # First try to find a word boundary
-                    test_chunk = remaining_text[:min(len(remaining_text), effective_max_size * 2)]  # Look ahead a bit
+                    # First make a rough estimate of number of chunks needed
+                    text_length = utf8len(text)
+                    estimated_chunks = (text_length // MAX_TEXT_SIZE) + 1
                     
-                    # Start with the full allowed size and work backward to find a space
-                    bytes_so_far = 0
-                    last_space_idx = -1
+                    # Calculate the size of the counter prefix (e.g., "[1/10] ")
+                    # Add 4 for the brackets, slash, and space: "[" + "/" + "] "
+                    counter_size = 4 + len(str(estimated_chunks)) + len(str(estimated_chunks))
                     
-                    for i, char in enumerate(test_chunk):
-                        char_bytes = utf8len(char)
-                        if bytes_so_far + char_bytes > effective_max_size:
-                            # We've reached our limit
-                            break
+                    # Calculate effective maximum content size per chunk
+                    effective_max_size = MAX_TEXT_SIZE - counter_size
+                    
+                    # Now chunk the message more accurately
+                    remaining_text = text
+                    
+                    while remaining_text:
+                        # Try to break at word boundary first
+                        current_chunk = ""
+                        current_size = 0
                         
-                        bytes_so_far += char_bytes
-                        if char.isspace():
-                            last_space_idx = i
-                    
-                    # If we found a space, break there
-                    if last_space_idx > 0:
-                        current_chunk = remaining_text[:last_space_idx + 1]
-                        remaining_text = remaining_text[last_space_idx + 1:]
-                    else:
-                        # No good word boundary found, fall back to character-by-character
-                        for char in remaining_text:
-                            char_size = utf8len(char)
-                            
-                            # Check if adding this character would exceed our effective limit
-                            if current_size + char_size > effective_max_size:
+                        # First try to find a word boundary
+                        test_chunk = remaining_text[:min(len(remaining_text), effective_max_size * 2)]  # Look ahead a bit
+                        
+                        # Start with the full allowed size and work backward to find a space
+                        bytes_so_far = 0
+                        last_space_idx = -1
+                        
+                        for i, char in enumerate(test_chunk):
+                            char_bytes = utf8len(char)
+                            if bytes_so_far + char_bytes > effective_max_size:
+                                # We've reached our limit
                                 break
                             
-                            current_chunk += char
-                            current_size += char_size
+                            bytes_so_far += char_bytes
+                            if char.isspace():
+                                last_space_idx = i
                         
-                        # If we couldn't fit even one character, something is wrong
-                        if not current_chunk:
-                            return f"Error: Cannot chunk message - individual character exceeds maximum size"
+                        # If we found a space, break there
+                        if last_space_idx > 0:
+                            current_chunk = remaining_text[:last_space_idx + 1]
+                            remaining_text = remaining_text[last_space_idx + 1:]
+                        else:
+                            # No good word boundary found, fall back to character-by-character
+                            for char in remaining_text:
+                                char_size = utf8len(char)
+                                
+                                # Check if adding this character would exceed our effective limit
+                                if current_size + char_size > effective_max_size:
+                                    break
+                                
+                                current_chunk += char
+                                current_size += char_size
+                            
+                            # If we couldn't fit even one character, something is wrong
+                            if not current_chunk:
+                                return f"Error: Cannot chunk message - individual character exceeds maximum size"
+                            
+                            # Remove the processed part from remaining text
+                            remaining_text = remaining_text[len(current_chunk):]
                         
-                        # Remove the processed part from remaining text
-                        remaining_text = remaining_text[len(current_chunk):]
+                        # Add this chunk to our list (without prefix for now)
+                        chunks.append(current_chunk)
                     
-                    # Add this chunk to our list (without prefix for now)
-                    chunks.append(current_chunk)
-                
-                # Now that we know the exact number of chunks, add the prefixes
-                total_chunks = len(chunks)
-                final_chunks = []
-                
-                for i, chunk_content in enumerate(chunks):
-                    prefix = f"[{i+1}/{total_chunks}] "
-                    final_chunks.append(prefix + chunk_content)
-                
-                # Send all chunks with half-second delay between each
-                results = []
-                for i, chunk in enumerate(final_chunks):
-                    try:
-                        # Add a delay between chunks (except before the first one)
-                        if i > 0:
-                            await asyncio.sleep(0.5)  # Half-second delay
-                        
-                        iface.sendText(chunk, destinationId, wantAck, wantResponse, None, channelIndex, portNum)
-                        results.append(f"Sent chunk: {chunk}")
-                    except Exception as e:
-                        results.append(f"Error sending chunk: {str(e)}")
-                
-                return "\n".join(results)
-            except Exception as e:
-                return f"Error chunking message: {str(e)}"
-            finally:
+                    # Now that we know the exact number of chunks, add the prefixes
+                    total_chunks = len(chunks)
+                    final_chunks = []
+                    
+                    for i, chunk_content in enumerate(chunks):
+                        prefix = f"[{i+1}/{total_chunks}] "
+                        final_chunks.append(prefix + chunk_content)
+                    
+                    # Send all chunks with half-second delay between each
+                    results = []
+                    for i, chunk in enumerate(final_chunks):
+                        try:
+                            # Add a delay between chunks (except before the first one)
+                            if i > 0:
+                                await asyncio.sleep(0.5)  # Half-second delay
+                            
+                            iface.sendText(chunk, destinationId, wantAck, wantResponse, None, channelIndex, portNum)
+                            results.append(f"Sent chunk: {chunk}")
+                        except Exception as e:
+                            results.append(f"Error sending chunk: {str(e)}")
+                    
+                    return "\n".join(results)
+                except Exception as e:
+                    return f"Error chunking message: {str(e)}"
+                finally:
+                    iface.close()
+        except Exception as e:
+            return f"Error sending text: {str(e)}"
+        finally:
+            if iface:
                 iface.close()
 
     @mcp.tool()
@@ -485,15 +479,16 @@ def register_mesh_tools(mcp):
         Returns:
             str: Status message indicating success or error
         """
-        if _cached_iface is None:
-            InterfaceManager.set_interface("meshtastic.local", "tcp")
-        iface = _cached_iface
         try:
+            iface = iface_manager.get_interface()
+            if iface is None:
+                iface = iface_manager.set_interface("meshtastic.local", "tcp")
             iface.sendTraceRoute(dest, hopLimit, channelIndex)
             return json.dumps({"status": "success", "message": f"Traceroute sent to {dest}"}, indent=4)
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=4)
         finally:
-            iface.close()
+            if iface:
+                iface.close()
     
     return mcp

@@ -1,10 +1,9 @@
 # Location and position-related tools
 import json
 import meshtastic
-import meshtastic.tcp_interface
 from utils import get_location_from_ip
 
-def register_location_tools(mcp):
+def register_location_tools(mcp, interface_manager):
     """Register all location-related tools with MCP."""
     
     @mcp.tool()
@@ -12,7 +11,7 @@ def register_location_tools(mcp):
         """Looks up the location of the device via its LAN connection and sets the device's location if none is present."""
         try:
             # First try to get position from Meshtastic device
-            iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+            iface = interface_manager.get_interface()
             my_node_num = iface.myInfo.my_node_num
             position = iface.nodesByNum[my_node_num].get("position")
             
@@ -43,7 +42,7 @@ def register_location_tools(mcp):
             lon (float): Longitude
             alt (float, optional): Altitude. Defaults to 0.
         """
-        iface = meshtastic.tcp_interface.TCPInterface("meshtastic.local")
+        iface = interface_manager.get_interface()
         try:
             iface.localNode.setFixedPosition(lat, lon, alt)
             return "Fixed position set successfully"
