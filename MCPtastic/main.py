@@ -10,6 +10,7 @@ from version import register_version
 from ble import register_ble
 from tcp import register_tcp
 from srl import register_serial
+from node import register_node_tools # Import for node tools
 from interface_manager import InterfaceManager
 
 # Initialize FastMCP server
@@ -23,6 +24,7 @@ register_mesh_tools(mcp, interface_manager)
 register_ble(mcp, interface_manager)
 register_tcp(mcp, interface_manager)
 register_serial(mcp, interface_manager)
+register_node_tools(mcp, interface_manager) # Register node tools
 register_version(mcp)
 
 if __name__ == "__main__":
