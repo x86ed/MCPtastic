@@ -1,12 +1,12 @@
 import json
 import sys
 import os
-import typing
+import asyncio
 from typing import Optional
 import meshtastic
-import asyncio
 from meshtastic.node import Node
-from meshtastic.config_pb2 import Config
+from meshtastic.util import MessageToJson
+from meshtastic.protobuf.config_pb2 import Config
 
 # Add the parent directory to the Python path for local imports
 # This is necessary for local imports when running this file directly
@@ -24,20 +24,27 @@ async def _get_node_object(iface_manager: InterfaceManager, nodeId: str) -> Opti
         # Attempt to set a default interface if none is active
         # This might need adjustment based on how MCPtastic handles default interfaces
         print("No active interface. Attempting to connect to default TCP interface.")
-        iface = await asyncio.to_thread(iface_manager.set_interface, "meshtastic.local", "tcp")
-        if not iface:
-            raise Exception("Failed to connect to a Meshtastic interface.")
+        try:
+            iface = await asyncio.to_thread(iface_manager.set_interface, "meshtastic.local", "tcp")
+            if not iface:
+                raise Exception("Failed to connect to a Meshtastic interface.")
+        except Exception as e:
+            raise Exception(f"Failed to connect to a Meshtastic interface: {str(e)}")
 
     if nodeId == "local":
         return iface.localNode
     else:
-        # For remote nodes, we need to ensure the node list is populated.
-        # The meshtastic library usually handles this on connection or via events.
-        # If direct access by nodeId is needed and might not be populated,
-        # a brief wait or a refresh mechanism might be necessary.
-        # For now, assume iface.nodesByNum or a similar attribute is up-to-date.
-        if iface.nodes:
+        # For remote nodes, check if nodes attribute exists and has the requested node
+        if hasattr(iface, 'nodes') and iface.nodes:
             return iface.nodes.get(nodeId)
+        # Try alternative properties on different meshtastic library versions
+        if hasattr(iface, 'nodesByNum') and iface.nodesByNum:
+            return iface.nodesByNum.get(nodeId)
+        if hasattr(iface, 'getNode'):
+            try:
+                return iface.getNode(nodeId)
+            except Exception:
+                pass
         return None
 
 
@@ -61,20 +68,23 @@ def register_node_tools(mcp, iface_manager: InterfaceManager) -> None:
 
             channels_info = []
             if hasattr(node, 'channels') and node.channels: # localNode stores channels in .channels
-                 for ch_settings in node.channels:
-                    channels_info.append(meshtastic.util.MessageToJson(ch_settings))
-            elif hasattr(node, 'settings') and node.settings.channel_settings: # remote nodes store in .settings.channel_settings
+                for ch_settings in node.channels:
+                    channels_info.append(MessageToJson(ch_settings))
+            elif hasattr(node, 'settings') and hasattr(node.settings, 'channel_settings') and node.settings.channel_settings: # remote nodes store in .settings.channel_settings
                 for ch_settings in node.settings.channel_settings:
-                    channels_info.append(meshtastic.util.MessageToJson(ch_settings))
-            elif hasattr(node, 'localConfig') and node.localConfig.channel_settings: # some local node versions
-                 for ch_settings in node.localConfig.channel_settings:
-                    channels_info.append(meshtastic.util.MessageToJson(ch_settings))
+                    channels_info.append(MessageToJson(ch_settings))
+            elif hasattr(node, 'localConfig') and hasattr(node.localConfig, 'channel_settings') and node.localConfig.channel_settings: # some local node versions
+                for ch_settings in node.localConfig.channel_settings:
+                    channels_info.append(MessageToJson(ch_settings))
             else: # Try remote call if local attributes are not found or empty
-                remote_channels = await asyncio.to_thread(node.showChannels)
-                if remote_channels: # showChannels already returns a dict/list of dicts
-                    return json.dumps({"status": "success", "nodeId": nodeId, "channels": remote_channels}, indent=4)
+                if hasattr(node, 'showChannels'):
+                    remote_channels = await asyncio.to_thread(node.showChannels)
+                    if remote_channels: # showChannels already returns a dict/list of dicts
+                        return json.dumps({"status": "success", "nodeId": nodeId, "channels": remote_channels}, indent=4)
+                    else:
+                        return json.dumps({"status": "error", "nodeId": nodeId, "message": "No channel data found for node or method not directly available for remote nodes in this manner."})
                 else:
-                    return json.dumps({"status": "error", "nodeId": nodeId, "message": "No channel data found for node or method not directly available for remote nodes in this manner."})
+                    return json.dumps({"status": "error", "nodeId": nodeId, "message": "No channel data found for node and no showChannels method available."})
             
             return json.dumps({"status": "success", "nodeId": nodeId, "channels": channels_info}, indent=4)
         except Exception as e:
@@ -104,58 +114,57 @@ def register_node_tools(mcp, iface_manager: InterfaceManager) -> None:
             if nodeId == "local":
                 iface = iface_manager.get_interface()
                 # For local node, gather info from various properties
-                info_data["myNodeInfo"] = iface.myInfo
-                info_data["localConfig"] = meshtastic.util.MessageToJson(iface.localNode.localConfig)
-                info_data["moduleConfig"] = meshtastic.util.MessageToJson(iface.localNode.moduleConfig)
-                info_data["channels"] = [meshtastic.util.MessageToJson(ch) for ch in iface.localNode.channels]
+                if hasattr(iface, 'myInfo'):
+                    info_data["myNodeInfo"] = iface.myInfo
+                if hasattr(iface, 'localNode') and hasattr(iface.localNode, 'localConfig'):
+                    info_data["localConfig"] = MessageToJson(iface.localNode.localConfig)
+                if hasattr(iface, 'localNode') and hasattr(iface.localNode, 'moduleConfig'):
+                    info_data["moduleConfig"] = MessageToJson(iface.localNode.moduleConfig)
+                if hasattr(iface, 'localNode') and hasattr(iface.localNode, 'channels'):
+                    info_data["channels"] = [MessageToJson(ch) for ch in iface.localNode.channels]
             else:
-                # For remote nodes, showInfo() might be the best bet if it returns data
-                # or we might need to request specific configurations.
-                # Let's assume node.showInfo() can be adapted or we use available properties.
-                # meshtastic-python's Node.showInfo() prints. We need the data.
-                # A common approach is to get the raw protobufs.
+                # For remote nodes, get available properties
                 if hasattr(node, 'localConfig') and node.localConfig:
-                    info_data["localConfig"] = meshtastic.util.MessageToJson(node.localConfig)
+                    info_data["localConfig"] = MessageToJson(node.localConfig)
                 if hasattr(node, 'moduleConfig') and node.moduleConfig:
-                    info_data["moduleConfig"] = meshtastic.util.MessageToJson(node.moduleConfig)
+                    info_data["moduleConfig"] = MessageToJson(node.moduleConfig)
                 if hasattr(node, 'role') and node.role: #This is not standard, but some custom versions might have it
-                     info_data["role"] = Config.DeviceConfig.Role.Name(node.role)
+                    info_data["role"] = Config.DeviceConfig.Role.Name(node.role)
 
-                # If node.showInfo() exists and returns a dict (ideal but not standard)
-                # info_data = await asyncio.to_thread(node.showInfo)
-                # Fallback: try to get common useful info if direct showInfo() is not data-returning
-                if not info_data: # If we couldn't get much yet
-                    info_data["nodeID"] = node.nodeId
-                    info_data["longName"] = node.longName
-                    info_data["shortName"] = node.shortName
-                    info_data["hwModel"] = node.hwModel
-                    info_data["isRouter"] = node.isRouter
-                    info_data["isMqtt"] = node.isMqttEnabled
-                    if hasattr(node, 'channels'): # Attempt to get channels if available
-                        channels_info = []
-                        if node.channels:
-                             for ch_settings in node.channels:
-                                channels_info.append(meshtastic.util.MessageToJson(ch_settings))
-                        elif hasattr(node, 'settings') and node.settings.channel_settings:
-                            for ch_settings in node.settings.channel_settings:
-                                channels_info.append(meshtastic.util.MessageToJson(ch_settings))
+                # Fallback: try to get common useful info
+                if not info_data or len(info_data) == 0:
+                    # Add basic node properties safely
+                    for attr in ['nodeId', 'longName', 'shortName', 'hwModel']:
+                        if hasattr(node, attr):
+                            info_data[attr] = getattr(node, attr)
+                    
+                    # Boolean properties
+                    for bool_attr in ['isRouter', 'isMqttEnabled']:
+                        if hasattr(node, bool_attr):
+                            info_data[bool_attr] = getattr(node, bool_attr)
+                    
+                    # Handle channels if available
+                    if hasattr(node, 'channels') and node.channels:
+                        channels_info = [MessageToJson(ch) for ch in node.channels]
+                        info_data["channels"] = channels_info
+                    elif hasattr(node, 'settings') and hasattr(node.settings, 'channel_settings'):
+                        channels_info = [MessageToJson(ch) for ch in node.settings.channel_settings]
                         info_data["channels"] = channels_info
 
-
-            if not info_data: # If still no data (e.g. remote node with minimal info)
-                 # Attempt to call the standard showInfo if all else fails, though it prints
-                try:
-                    # This is a bit of a hack. showInfo prints. We can't capture its output directly here
-                    # without redirecting stdout, which is complex in async and might affect MCP.
-                    # For now, we'll just indicate it would be printed or try a remote request.
-                    # await asyncio.to_thread(node.showInfo) # This would print to MCP's console
-                    # A better way for remote nodes is explicit config requests, but that's more involved.
-                    # For now, we return what we have or a message.
-                    if nodeId != "local":
-                         return json.dumps({"status": "success", "nodeId": nodeId, "message": "Basic info retrieved. For full remote node details, specific config requests might be needed.", "data": {"nodeID": node.nodeId, "longName": node.longName, "shortName": node.shortName, "hwModel": node.hwModel} }, indent=4)
-                except Exception as e_info:
-                    return json.dumps({"status": "error", "nodeId": nodeId, "message": f"Could not retrieve detailed info for node: {str(e_info)}"})
-
+            if not info_data or len(info_data) == 0:
+                # Return basic node info if we couldn't get detailed info
+                basic_info = {
+                    "nodeID": getattr(node, 'nodeId', 'unknown'),
+                    "longName": getattr(node, 'longName', 'unknown'),
+                    "shortName": getattr(node, 'shortName', 'unknown'),
+                    "hwModel": getattr(node, 'hwModel', 'unknown')
+                }
+                return json.dumps({
+                    "status": "success", 
+                    "nodeId": nodeId, 
+                    "message": "Basic info retrieved. For full remote node details, specific config requests might be needed.", 
+                    "data": basic_info
+                }, indent=4)
 
             return json.dumps({"status": "success", "nodeId": nodeId, "info": info_data}, indent=4)
 
@@ -180,35 +189,42 @@ def register_node_tools(mcp, iface_manager: InterfaceManager) -> None:
             if not node:
                 return json.dumps({"status": "error", "message": f"Node {nodeId} not found."})
 
-            iface = iface_manager.get_interface() # Needed for localNode case and sending commands
+            iface = iface_manager.get_interface()
+            if not iface:
+                return json.dumps({"status": "error", "message": "Interface not available."})
             
             current_long_name = None
             current_short_name = None
 
             if nodeId == "local":
-                current_long_name = iface.getLongName()
-                current_short_name = iface.getShortName()
-            elif hasattr(node, 'user') and node.user: # For remote nodes, user info might be populated
-                current_long_name = node.user.long_name
-                current_short_name = node.user.short_name
+                if hasattr(iface, 'getLongName'):
+                    current_long_name = iface.getLongName()
+                if hasattr(iface, 'getShortName'):
+                    current_short_name = iface.getShortName()
+            elif hasattr(node, 'user') and node.user:
+                current_long_name = getattr(node.user, 'long_name', None)
+                current_short_name = getattr(node.user, 'short_name', None)
             
             # Use current names if new names are not provided
             final_long_name = long_name if long_name is not None else current_long_name
             final_short_name = short_name if short_name is not None else current_short_name
 
             # Ensure names are not None if they couldn't be fetched and weren't provided
-            if final_long_name is None: final_long_name = "Meshtastic" # Default if not set
-            if final_short_name is None: final_short_name = "Mesh"    # Default if not set
-
+            if final_long_name is None:
+                final_long_name = "Meshtastic" # Default if not set
+            if final_short_name is None:
+                final_short_name = "Mesh"    # Default if not set
 
             if nodeId == "local":
-                # For local node, setOwner is straightforward if available on localNode,
-                # otherwise use interface methods.
-                # meshtastic-python's typical way is via iface.setOwner()
-                await asyncio.to_thread(iface.setOwner, final_long_name, final_short_name, is_licensed)
+                if hasattr(iface, 'setOwner'):
+                    await asyncio.to_thread(iface.setOwner, final_long_name, final_short_name, is_licensed)
+                else:
+                    return json.dumps({"status": "error", "message": "Interface does not have setOwner method."})
             else:
-                # For remote nodes, setOwner is a command sent to the node.
-                await asyncio.to_thread(node.setOwner, final_long_name, final_short_name, is_licensed)
+                if hasattr(node, 'setOwner'):
+                    await asyncio.to_thread(node.setOwner, final_long_name, final_short_name, is_licensed)
+                else:
+                    return json.dumps({"status": "error", "message": "Node does not have setOwner method."})
             
             return json.dumps({"status": "success", "nodeId": nodeId, "message": f"Owner set to Long: {final_long_name}, Short: {final_short_name}, Licensed: {is_licensed}"}, indent=4)
         except Exception as e:
@@ -228,56 +244,42 @@ def register_node_tools(mcp, iface_manager: InterfaceManager) -> None:
         try:
             node = await _get_node_object(iface_manager, nodeId)
             if not node:
-                 return json.dumps({"status": "error", "message": f"Node {nodeId} not found."})
+                return json.dumps({"status": "error", "message": f"Node {nodeId} not found."})
 
-            iface = iface_manager.get_interface() # Needed for some operations
+            iface = iface_manager.get_interface()
+            if not iface:
+                return json.dumps({"status": "error", "message": "Interface not available."})
 
             if nodeId == "local":
-                # meshtastic-python's Interface has getURL() and getQRCodeURL()
-                # getURL(channelIndex) gives specific channel URL
-                # getQRCodeURL() gives a URL that shows QR codes for all channels
                 if includeAll:
-                    url = await asyncio.to_thread(iface.getQRCodeURL)
-                    return json.dumps({"status": "success", "nodeId": "local", "type": "all_channels_qr_code_url", "url": url}, indent=4)
+                    if hasattr(iface, 'getQRCodeURL'):
+                        url = await asyncio.to_thread(iface.getQRCodeURL)
+                        return json.dumps({"status": "success", "nodeId": "local", "type": "all_channels_qr_code_url", "url": url}, indent=4)
+                    else:
+                        return json.dumps({"status": "error", "message": "Interface does not have getQRCodeURL method."})
                 else:
-                    # Assuming primary channel is index 0
-                    url = await asyncio.to_thread(iface.getURL, 0)
-                    return json.dumps({"status": "success", "nodeId": "local", "type": "primary_channel_url", "url": url}, indent=4)
+                    if hasattr(iface, 'getURL'):
+                        url = await asyncio.to_thread(iface.getURL, 0)  # Assuming primary channel is index 0
+                        return json.dumps({"status": "success", "nodeId": "local", "type": "primary_channel_url", "url": url}, indent=4)
+                    else:
+                        return json.dumps({"status": "error", "message": "Interface does not have getURL method."})
             else:
-                # For remote nodes, there isn't a direct "getURL" command.
-                # URLs are constructed based on channel settings.
-                # We'd need to fetch channel settings first.
-                # This is complex as it requires having the channel PSK.
-                # The `meshtastic --info` CLI can construct these if it has the data.
-                # A simplified approach: return the channel settings if available, user can make URL.
-                
+                # For remote nodes, collect and return channel settings
                 channels_data = []
-                if hasattr(node, 'settings') and node.settings.channel_settings:
+                if hasattr(node, 'settings') and hasattr(node.settings, 'channel_settings'):
                     for i, ch_setting in enumerate(node.settings.channel_settings):
-                        # Constructing a URL requires psk, name, mode.
-                        # This is a simplified representation.
-                        # Real URL construction: meshtastic.util.our_make_full_channel_url
-                        # For security, we won't expose PSKs directly here.
-                        # We can provide a placeholder or guide the user.
                         ch_info = {
                             "index": i,
-                            "name": ch_setting.name,
-                            "role": Config.ChannelConfig.Role.Name(ch_setting.role) if hasattr(ch_setting, "role") else "PRIMARY", # role may not exist on older firmwares
+                            "name": getattr(ch_setting, 'name', 'unknown'),
+                            "role": Config.ChannelConfig.Role.Name(ch_setting.role) 
+                                if hasattr(ch_setting, "role") and hasattr(Config.ChannelConfig.Role, 'Name') 
+                                else "PRIMARY",
                             "psk_hint": "PSK required to form URL, not shown for security."
                         }
-                        # Attempt to build URL if possible (requires meshtastic.util and channel bytes)
-                        try:
-                            # This is tricky for remote nodes as we don't have the raw channel object easily
-                            # or the full interface context to generate the PSK bytes needed for the URL.
-                            # The function `our_make_full_channel_url` needs more than just the settings protobuf.
-                            # For now, we'll just return channel names.
-                            pass
-                        except Exception:
-                            pass # Could not form URL
                         channels_data.append(ch_info)
 
                 if channels_data:
-                     return json.dumps({"status": "success", "nodeId": nodeId, "message": "Channel data for URL construction. Manual URL creation may be needed for remote nodes.", "channels": channels_data}, indent=4)
+                    return json.dumps({"status": "success", "nodeId": nodeId, "message": "Channel data for URL construction. Manual URL creation may be needed for remote nodes.", "channels": channels_data}, indent=4)
                 else:
                     return json.dumps({"status": "info", "nodeId": nodeId, "message": "Cannot directly get URL for remote node without channel data. Try 'show_channels' first."}, indent=4)
 
@@ -300,35 +302,23 @@ def register_node_tools(mcp, iface_manager: InterfaceManager) -> None:
         """
         try:
             if nodeId != "local":
-                # TODO: Implement setURL for remote nodes if node.setURL() or similar becomes available.
-                # This typically involves sending a SetChannelRequest protobuf message.
-                # For now, remote setURL is complex due to needing specific protobuf constructions.
-                # node.writeChannel(channel_index, settings_protobuf) is one way if settings are parsed from URL.
                 return json.dumps({"status": "error", "message": f"setURL for remote node '{nodeId}' is not directly supported by this tool yet. Use on local node."})
 
             iface = iface_manager.get_interface()
             if not iface:
-                 return json.dumps({"status": "error", "message": "Interface not available."})
+                return json.dumps({"status": "error", "message": "Interface not available."})
             
-            # The setURL method on the interface typically applies the URL.
-            # The `addOnly` parameter is not standard in meshtastic-python's setURL.
-            # It usually replaces or sets the primary channel.
-            # If `addOnly` functionality is critical, it would require custom logic:
-            # 1. Parse URL to get channel settings.
-            # 2. Get existing channels.
-            # 3. Compare and decide whether to add or skip.
-            # This is advanced. For now, we use the standard behavior.
-
             if addOnly:
-                # Log that addOnly is not standard for setURL
                 print(f"Note: 'addOnly' parameter for setURL is not a standard feature of meshtastic.py; URL will likely set the primary channel or be handled as per library default.")
 
-            await asyncio.to_thread(iface.setURL, url)
-            # To confirm, we could fetch channels after setting, but for now, assume success if no exception.
-            return json.dumps({"status": "success", "nodeId": "local", "message": f"URL set. Node will apply changes. Current primary channel may have been updated or new channels added based on URL type."}, indent=4)
+            if hasattr(iface, 'setURL'):
+                await asyncio.to_thread(iface.setURL, url)
+                return json.dumps({"status": "success", "nodeId": "local", "message": f"URL set. Node will apply changes. Current primary channel may have been updated or new channels added based on URL type."}, indent=4)
+            else:
+                return json.dumps({"status": "error", "message": "Interface does not have setURL method."})
+        
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=4)
-
 
     @mcp.tool()
     async def reboot(secs: int = 10, nodeId: str = "local") -> str:
@@ -346,14 +336,20 @@ def register_node_tools(mcp, iface_manager: InterfaceManager) -> None:
             if not node:
                 return json.dumps({"status": "error", "message": f"Node {nodeId} not found."})
 
-            await asyncio.to_thread(node.reboot, secs)
-            return json.dumps({"status": "success", "nodeId": nodeId, "message": f"Node will reboot in {secs} seconds."}, indent=4)
-        except AttributeError: # If node object doesn't have reboot (e.g. very old fw or simple dict)
-             iface = iface_manager.get_interface()
-             if nodeId == "local" and hasattr(iface, 'getNode') and hasattr(iface.getNode(nodeId), 'reboot'): # try via interface
-                 await asyncio.to_thread(iface.getNode(nodeId).reboot, secs)
-                 return json.dumps({"status": "success", "nodeId": nodeId, "message": f"Node will reboot in {secs} seconds via interface call."})    
-             return json.dumps({"status": "error", "message": f"Node object for {nodeId} does not have a 'reboot' method."})
+            if hasattr(node, 'reboot'):
+                await asyncio.to_thread(node.reboot, secs)
+                return json.dumps({"status": "success", "nodeId": nodeId, "message": f"Node will reboot in {secs} seconds."}, indent=4)
+            else:
+                # Try via interface if node doesn't have reboot method
+                iface = iface_manager.get_interface()
+                if nodeId == "local" and hasattr(iface, 'getNode'):
+                    node_via_iface = iface.getNode(nodeId)
+                    if hasattr(node_via_iface, 'reboot'):
+                        await asyncio.to_thread(node_via_iface.reboot, secs)
+                        return json.dumps({"status": "success", "nodeId": nodeId, "message": f"Node will reboot in {secs} seconds via interface call."})
+                
+                return json.dumps({"status": "error", "message": f"Node object for {nodeId} does not have a 'reboot' method."})
+        
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=4)
 
@@ -373,21 +369,23 @@ def register_node_tools(mcp, iface_manager: InterfaceManager) -> None:
             if not node:
                 return json.dumps({"status": "error", "message": f"Node {nodeId} not found."})
 
-            # Check if the node object has the shutdown method (older firmwares might not)
-            if not hasattr(node, "shutdown"):
-                 iface = iface_manager.get_interface() # Check if it's on the interface.getNode()
-                 if nodeId == "local" and hasattr(iface, 'getNode') and hasattr(iface.getNode(nodeId), 'shutdown'):
-                     await asyncio.to_thread(iface.getNode(nodeId).shutdown, secs)
-                     return json.dumps({"status": "success", "nodeId": nodeId, "message": f"Node will shutdown in {secs} seconds via interface call."})    
-                 return json.dumps({"status": "error", "nodeId": nodeId, "message": "Node does not support shutdown command or method not found."})
-
-            await asyncio.to_thread(node.shutdown, secs)
-            return json.dumps({"status": "success", "nodeId": nodeId, "message": f"Node will shutdown in {secs} seconds."}, indent=4)
-        except AttributeError: # Fallback for safety, though hasattr should catch it.
-             return json.dumps({"status": "error", "message": f"Node object for {nodeId} does not have a 'shutdown' method."})
+            # Check if the node object has the shutdown method
+            if hasattr(node, "shutdown"):
+                await asyncio.to_thread(node.shutdown, secs)
+                return json.dumps({"status": "success", "nodeId": nodeId, "message": f"Node will shutdown in {secs} seconds."}, indent=4)
+            else:
+                # Try via interface if node doesn't have shutdown method
+                iface = iface_manager.get_interface()
+                if nodeId == "local" and hasattr(iface, 'getNode'):
+                    node_via_iface = iface.getNode(nodeId) 
+                    if hasattr(node_via_iface, 'shutdown'):
+                        await asyncio.to_thread(node_via_iface.shutdown, secs)
+                        return json.dumps({"status": "success", "nodeId": nodeId, "message": f"Node will shutdown in {secs} seconds via interface call."})
+                
+                return json.dumps({"status": "error", "message": f"Node object for {nodeId} does not have a 'shutdown' method."})
+        
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=4)
-
 
     @mcp.tool()
     async def factory_reset(nodeId: str = "local", full: bool = False) -> str:
@@ -406,25 +404,24 @@ def register_node_tools(mcp, iface_manager: InterfaceManager) -> None:
             if not node:
                 return json.dumps({"status": "error", "message": f"Node {nodeId} not found."})
 
-            # The factoryReset method might not have a 'full' parameter in all lib versions/firmwares.
-            # We will call it if it exists, otherwise call without it.
-            # meshtastic-python's Node.factoryReset() doesn't take args. It's a simple command.
-            # The 'full' might be a conceptual parameter for the tool, but the underlying command is fixed.
-            
             if full:
-                # Log that 'full' might not be specifically implemented by the device command
                 print(f"Note: 'full=True' for factory_reset is a conceptual parameter. The node will perform its standard factory reset procedure.")
 
-            await asyncio.to_thread(node.factoryReset)
-            return json.dumps({"status": "success", "nodeId": nodeId, "message": "Node will perform a factory reset. It will likely reboot and lose current settings."}, indent=4)
-
-        except AttributeError: # If node object doesn't have factoryReset
-             iface = iface_manager.get_interface()
-             if nodeId == "local" and hasattr(iface, 'getNode') and hasattr(iface.getNode(nodeId), 'factoryReset'):
-                 await asyncio.to_thread(iface.getNode(nodeId).factoryReset)
-                 return json.dumps({"status": "success", "nodeId": nodeId, "message": "Node will perform factory reset via interface call."})
-             return json.dumps({"status": "error", "message": f"Node object for {nodeId} does not have a 'factoryReset' method."})
+            if hasattr(node, 'factoryReset'):
+                await asyncio.to_thread(node.factoryReset)
+                return json.dumps({"status": "success", "nodeId": nodeId, "message": "Node will perform a factory reset. It will likely reboot and lose current settings."}, indent=4)
+            else:
+                # Try via interface if node doesn't have factoryReset method
+                iface = iface_manager.get_interface()
+                if nodeId == "local" and hasattr(iface, 'getNode'):
+                    node_via_iface = iface.getNode(nodeId)
+                    if hasattr(node_via_iface, 'factoryReset'):
+                        await asyncio.to_thread(node_via_iface.factoryReset)
+                        return json.dumps({"status": "success", "nodeId": nodeId, "message": "Node will perform factory reset via interface call."})
+                
+                return json.dumps({"status": "error", "message": f"Node object for {nodeId} does not have a 'factoryReset' method."})
+        
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)}, indent=4)
     
-    return mcp # Return mcp to chain registrations if needed
+    return mcp  # Return mcp to chain registrations if needed
